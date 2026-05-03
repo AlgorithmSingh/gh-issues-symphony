@@ -40,7 +40,8 @@ defmodule SymphonyElixir.Tracker do
   def adapter do
     case Config.settings!().tracker.kind do
       "memory" -> SymphonyElixir.Tracker.Memory
-      _ -> SymphonyElixir.Linear.Adapter
+      "github" -> SymphonyElixir.GitHub.Adapter
+      other -> raise ArgumentError, "unsupported tracker.kind: #{inspect(other)}"
     end
   end
 end

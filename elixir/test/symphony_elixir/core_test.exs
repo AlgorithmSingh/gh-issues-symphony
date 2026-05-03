@@ -4,7 +4,7 @@ defmodule SymphonyElixir.CoreTest do
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      tracker_project_slug: nil,
+      tracker_repo: nil,
       poll_interval_ms: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
@@ -43,13 +43,13 @@ defmodule SymphonyElixir.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: "token",
-      tracker_project_slug: nil
+      tracker_repo: nil
     )
 
-    assert {:error, :missing_linear_project_slug} = Config.validate!()
+    assert {:error, :missing_github_repo} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_project_slug: "project",
+      tracker_repo: "owner/name",
       codex_command: ""
     )
 
@@ -98,8 +98,8 @@ defmodule SymphonyElixir.CoreTest do
 
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
-    assert Map.get(tracker, "kind") == "linear"
-    assert is_binary(Map.get(tracker, "project_slug"))
+    assert Map.get(tracker, "kind") == "github"
+    assert is_binary(Map.get(tracker, "repo"))
     assert is_list(Map.get(tracker, "active_states"))
     assert is_list(Map.get(tracker, "terminal_states"))
 
@@ -115,34 +115,62 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.workflow_prompt() == prompt
   end
 
-  test "linear api token resolves from LINEAR_API_KEY env var" do
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-    env_api_key = "test-linear-api-key"
+  test "github api token resolves from GH_TOKEN env var" do
+    previous_gh_token = System.get_env("GH_TOKEN")
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    env_api_key = "test-github-api-key"
 
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
-    System.put_env("LINEAR_API_KEY", env_api_key)
+    on_exit(fn ->
+      restore_env("GH_TOKEN", previous_gh_token)
+      restore_env("GITHUB_TOKEN", previous_github_token)
+    end)
+
+    System.delete_env("GITHUB_TOKEN")
+    System.put_env("GH_TOKEN", env_api_key)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      tracker_project_slug: "project",
+      tracker_repo: "owner/name",
       codex_command: "/bin/sh app-server"
     )
 
     assert Config.settings!().tracker.api_key == env_api_key
-    assert Config.settings!().tracker.project_slug == "project"
+    assert Config.settings!().tracker.repo == "owner/name"
     assert :ok = Config.validate!()
   end
 
-  test "linear assignee resolves from LINEAR_ASSIGNEE env var" do
-    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
-    env_assignee = "dev@example.com"
+  test "github api token falls back to GITHUB_TOKEN when GH_TOKEN is unset" do
+    previous_gh_token = System.get_env("GH_TOKEN")
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    env_api_key = "fallback-github-token"
 
-    on_exit(fn -> restore_env("LINEAR_ASSIGNEE", previous_linear_assignee) end)
-    System.put_env("LINEAR_ASSIGNEE", env_assignee)
+    on_exit(fn ->
+      restore_env("GH_TOKEN", previous_gh_token)
+      restore_env("GITHUB_TOKEN", previous_github_token)
+    end)
+
+    System.delete_env("GH_TOKEN")
+    System.put_env("GITHUB_TOKEN", env_api_key)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_api_token: nil,
+      tracker_repo: "owner/name",
+      codex_command: "/bin/sh app-server"
+    )
+
+    assert Config.settings!().tracker.api_key == env_api_key
+  end
+
+  test "github assignee resolves from GITHUB_ASSIGNEE env var" do
+    previous_assignee = System.get_env("GITHUB_ASSIGNEE")
+    env_assignee = "dev"
+
+    on_exit(fn -> restore_env("GITHUB_ASSIGNEE", previous_assignee) end)
+    System.put_env("GITHUB_ASSIGNEE", env_assignee)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_assignee: nil,
-      tracker_project_slug: "project",
+      tracker_repo: "owner/name",
       codex_command: "/bin/sh app-server"
     )
 
@@ -183,9 +211,9 @@ defmodule SymphonyElixir.CoreTest do
 
   test "workflow load accepts unterminated front matter with an empty prompt" do
     workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "UNTERMINATED_WORKFLOW.md")
-    File.write!(workflow_path, "---\ntracker:\n  kind: linear\n")
+    File.write!(workflow_path, "---\ntracker:\n  kind: github\n")
 
-    assert {:ok, %{config: %{"tracker" => %{"kind" => "linear"}}, prompt: "", prompt_template: ""}} =
+    assert {:ok, %{config: %{"tracker" => %{"kind" => "github"}}, prompt: "", prompt_template: ""}} =
              Workflow.load(workflow_path)
   end
 
@@ -220,7 +248,7 @@ defmodule SymphonyElixir.CoreTest do
     GenServer.stop(pid)
   end
 
-  test "linear issue state reconciliation fetch with no running issues is a no-op" do
+  test "github issue state reconciliation fetch with no running issues is a no-op" do
     assert {:ok, []} = Client.fetch_issue_states_by_ids([])
   end
 
@@ -883,7 +911,7 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue)
 
-    assert prompt =~ "You are working on a Linear issue."
+    assert prompt =~ "You are working on a GitHub issue."
     assert prompt =~ "Identifier: MT-777"
     assert prompt =~ "Title: Make fallback prompt useful"
     assert prompt =~ "Body:"
@@ -959,7 +987,7 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
-    assert prompt =~ "You are working on a Linear ticket `MT-616`"
+    assert prompt =~ "You are working on a GitHub issue `MT-616`"
     assert prompt =~ "Issue context:"
     assert prompt =~ "Identifier: MT-616"
     assert prompt =~ "Title: Use rich templates for WORKFLOW.md"
