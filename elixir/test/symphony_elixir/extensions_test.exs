@@ -4,12 +4,12 @@ defmodule SymphonyElixir.ExtensionsTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias SymphonyElixir.Linear.Adapter
+  alias SymphonyElixir.GitHub.Adapter
   alias SymphonyElixir.Tracker.Memory
 
   @endpoint SymphonyElixirWeb.Endpoint
 
-  defmodule FakeLinearClient do
+  defmodule FakeGitHubClient do
     def fetch_candidate_issues do
       send(self(), :fetch_candidate_issues_called)
       {:ok, [:candidate]}
@@ -78,13 +78,13 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   setup do
-    linear_client_module = Application.get_env(:symphony_elixir, :linear_client_module)
+    github_client_module = Application.get_env(:symphony_elixir, :github_client_module)
 
     on_exit(fn ->
-      if is_nil(linear_client_module) do
-        Application.delete_env(:symphony_elixir, :linear_client_module)
+      if is_nil(github_client_module) do
+        Application.delete_env(:symphony_elixir, :github_client_module)
       else
-        Application.put_env(:symphony_elixir, :linear_client_module, linear_client_module)
+        Application.put_env(:symphony_elixir, :github_client_module, github_client_module)
       end
     end)
 
@@ -181,8 +181,8 @@ defmodule SymphonyElixir.ExtensionsTest do
     WorkflowStore.force_reload()
   end
 
-  test "tracker delegates to memory and linear adapters" do
-    issue = %Issue{id: "issue-1", identifier: "MT-1", state: "In Progress"}
+  test "tracker delegates to memory and github adapters" do
+    issue = %Issue{id: "issue-1", identifier: "#1", state: "in-progress"}
     Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue, %{id: "ignored"}])
     Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
@@ -190,7 +190,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert Config.settings!().tracker.kind == "memory"
     assert SymphonyElixir.Tracker.adapter() == Memory
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_candidate_issues()
-    assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in progress ", 42])
+    assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in-progress ", 42])
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
     assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
     assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Done")
@@ -201,12 +201,12 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert :ok = Memory.create_comment("issue-1", "quiet")
     assert :ok = Memory.update_issue_state("issue-1", "Quiet")
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github")
     assert SymphonyElixir.Tracker.adapter() == Adapter
   end
 
-  test "linear adapter delegates reads and validates mutation responses" do
-    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+  test "github adapter delegates reads to the configured client module" do
+    Application.put_env(:symphony_elixir, :github_client_module, FakeGitHubClient)
 
     assert {:ok, [:candidate]} = Adapter.fetch_candidate_issues()
     assert_receive :fetch_candidate_issues_called
@@ -216,107 +216,92 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert {:ok, ["issue-1"]} = Adapter.fetch_issue_states_by_ids(["issue-1"])
     assert_receive {:fetch_issue_states_by_ids_called, ["issue-1"]}
+  end
 
-    Process.put(
-      {FakeLinearClient, :graphql_result},
-      {:ok, %{"data" => %{"commentCreate" => %{"success" => true}}}}
-    )
+  test "github adapter create_comment maps errors and success" do
+    Application.put_env(:symphony_elixir, :github_client_module, FakeGitHubClient)
 
+    Process.put({FakeGitHubClient, :graphql_result}, {:ok, %{"data" => %{"addComment" => %{"clientMutationId" => nil}}}})
     assert :ok = Adapter.create_comment("issue-1", "hello")
-    assert_receive {:graphql_called, create_comment_query, %{body: "hello", issueId: "issue-1"}}
-    assert create_comment_query =~ "commentCreate"
+    assert_receive {:graphql_called, mutation, %{body: "hello", subjectId: "issue-1"}}
+    assert mutation =~ "addComment"
 
-    Process.put(
-      {FakeLinearClient, :graphql_result},
-      {:ok, %{"data" => %{"commentCreate" => %{"success" => false}}}}
-    )
+    Process.put({FakeGitHubClient, :graphql_result}, {:ok, %{"errors" => [%{"message" => "bad"}]}})
+    assert {:error, {:github_graphql_errors, _}} = Adapter.create_comment("issue-1", "broken")
 
-    assert {:error, :comment_create_failed} =
-             Adapter.create_comment("issue-1", "broken")
-
-    Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
-
+    Process.put({FakeGitHubClient, :graphql_result}, {:error, :boom})
     assert {:error, :boom} = Adapter.create_comment("issue-1", "boom")
+  end
 
-    Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"data" => %{}}})
-    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "weird")
-
-    Process.put({FakeLinearClient, :graphql_result}, :unexpected)
-    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "odd")
+  test "github adapter update_issue_state removes existing status labels and adds the new one" do
+    Application.put_env(:symphony_elixir, :github_client_module, FakeGitHubClient)
 
     Process.put(
-      {FakeLinearClient, :graphql_results},
+      {FakeGitHubClient, :graphql_results},
       [
         {:ok,
          %{
            "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
+             "node" => %{
+               "id" => "issue-1",
+               "repository" => %{"id" => "repo-1"},
+               "labels" => %{"nodes" => [%{"id" => "label-old", "name" => "status:todo"}, %{"id" => "label-other", "name" => "bug"}]}
+             }
            }
          }},
-        {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+        {:ok, %{"data" => %{"removeLabelsFromLabelable" => %{"clientMutationId" => nil}}}},
+        {:ok, %{"data" => %{"node" => %{"label" => %{"id" => "label-new"}}}}},
+        {:ok, %{"data" => %{"addLabelsToLabelable" => %{"clientMutationId" => nil}}}}
       ]
     )
 
-    assert :ok = Adapter.update_issue_state("issue-1", "Done")
-    assert_receive {:graphql_called, state_lookup_query, %{issueId: "issue-1", stateName: "Done"}}
-    assert state_lookup_query =~ "states"
+    assert :ok = Adapter.update_issue_state("issue-1", "In Progress")
 
-    assert_receive {:graphql_called, update_issue_query, %{issueId: "issue-1", stateId: "state-1"}}
+    assert_receive {:graphql_called, _read_query, %{id: "issue-1"}}
+    assert_receive {:graphql_called, _remove_query, %{labelableId: "issue-1", labelIds: ["label-old"]}}
+    assert_receive {:graphql_called, _lookup_query, %{repositoryId: "repo-1", name: "status:in-progress"}}
+    assert_receive {:graphql_called, _add_query, %{labelableId: "issue-1", labelIds: ["label-new"]}}
+  end
 
-    assert update_issue_query =~ "issueUpdate"
+  test "github adapter update_issue_state creates the label when none exists" do
+    Application.put_env(:symphony_elixir, :github_client_module, FakeGitHubClient)
 
     Process.put(
-      {FakeLinearClient, :graphql_results},
+      {FakeGitHubClient, :graphql_results},
       [
         {:ok,
          %{
            "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
+             "node" => %{
+               "id" => "issue-2",
+               "repository" => %{"id" => "repo-2"},
+               "labels" => %{"nodes" => []}
+             }
            }
          }},
-        {:ok, %{"data" => %{"issueUpdate" => %{"success" => false}}}}
+        {:ok, %{"data" => %{"node" => %{"label" => nil}}}},
+        {:ok, %{"data" => %{"createLabel" => %{"label" => %{"id" => "label-new", "name" => "status:done"}}}}},
+        {:ok, %{"data" => %{"addLabelsToLabelable" => %{"clientMutationId" => nil}}}}
       ]
     )
 
-    assert {:error, :issue_update_failed} =
-             Adapter.update_issue_state("issue-1", "Broken")
+    assert :ok = Adapter.update_issue_state("issue-2", "Done")
 
-    Process.put({FakeLinearClient, :graphql_results}, [{:error, :boom}])
+    assert_receive {:graphql_called, _read_query, %{id: "issue-2"}}
+    assert_receive {:graphql_called, _lookup_query, %{repositoryId: "repo-2", name: "status:done"}}
+    assert_receive {:graphql_called, create_query, %{repositoryId: "repo-2", name: "status:done", color: "0e8a16"}}
+    assert create_query =~ "createLabel"
+    assert_receive {:graphql_called, _add_query, %{labelableId: "issue-2", labelIds: ["label-new"]}}
+  end
 
-    assert {:error, :boom} = Adapter.update_issue_state("issue-1", "Boom")
+  test "github adapter update_issue_state surfaces GraphQL errors" do
+    Application.put_env(:symphony_elixir, :github_client_module, FakeGitHubClient)
 
-    Process.put({FakeLinearClient, :graphql_results}, [{:ok, %{"data" => %{}}}])
-    assert {:error, :state_not_found} = Adapter.update_issue_state("issue-1", "Missing")
+    Process.put({FakeGitHubClient, :graphql_results}, [{:error, :boom}])
+    assert {:error, :boom} = Adapter.update_issue_state("issue-3", "Done")
 
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        {:ok, %{"data" => %{}}}
-      ]
-    )
-
-    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Weird")
-
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        :unexpected
-      ]
-    )
-
-    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Odd")
+    Process.put({FakeGitHubClient, :graphql_results}, [{:ok, %{"errors" => [%{"message" => "nope"}]}}])
+    assert {:error, {:github_graphql_errors, _}} = Adapter.update_issue_state("issue-3", "Done")
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do

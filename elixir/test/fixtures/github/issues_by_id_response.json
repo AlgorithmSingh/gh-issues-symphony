@@ -1,0 +1,23 @@
+{
+  "data": {
+    "nodes": [
+      {
+        "id": "I_kwDO000001",
+        "number": 142,
+        "title": "Add login button",
+        "body": "Add a sign-in button to the navbar.",
+        "url": "https://github.com/owner/name/issues/142",
+        "state": "OPEN",
+        "createdAt": "2026-01-01T12:00:00Z",
+        "updatedAt": "2026-01-02T08:30:00Z",
+        "repository": { "nameWithOwner": "owner/name" },
+        "assignees": { "nodes": [{ "login": "octocat" }] },
+        "labels": {
+          "nodes": [
+            { "name": "status:todo" }
+          ]
+        }
+      }
+    ]
+  }
+}

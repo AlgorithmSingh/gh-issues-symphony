@@ -5,7 +5,7 @@
 │ Runtime: 0m 0s
 │ Tokens: in 0 | out 0 | total 0
 │ Rate Limits: unavailable
-│ Project: https://linear.app/project/project/issues
+│ Project: https://github.com/owner/name/issues
 │ Next refresh: n/a
 ├─ Running
 │

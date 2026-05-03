@@ -426,20 +426,7 @@ defmodule SymphonyElixir.AppServerTest do
                    |> String.trim_leading("JSON:")
                    |> Jason.decode!()
 
-                 payload["id"] == 2 and
-                   case get_in(payload, ["params", "dynamicTools"]) do
-                     [
-                       %{
-                         "description" => description,
-                         "inputSchema" => %{"required" => ["query"]},
-                         "name" => "linear_graphql"
-                       }
-                     ] ->
-                       description =~ "Linear"
-
-                     _ ->
-                       false
-                   end
+                 payload["id"] == 2 and get_in(payload, ["params", "dynamicTools"]) == []
                else
                  false
                end
