@@ -45,6 +45,7 @@ defmodule SymphonyElixir.Config.Schema do
     @primary_key false
 
     @repo_format ~r/^[\w.-]+\/[\w.-]+$/
+    @repo_format_message "must be in \"owner/name\" form when tracker.kind is github"
 
     embedded_schema do
       field(:kind, :string)
@@ -80,9 +81,7 @@ defmodule SymphonyElixir.Config.Schema do
     defp validate_kind_specific_fields(changeset) do
       case get_field(changeset, :kind) do
         "github" ->
-          validate_format(changeset, :repo, @repo_format,
-            message: "must be in \"owner/name\" form when tracker.kind is github"
-          )
+          validate_format(changeset, :repo, @repo_format, message: @repo_format_message)
 
         _ ->
           changeset
@@ -397,8 +396,8 @@ defmodule SymphonyElixir.Config.Schema do
     {api_key_env, assignee_env, default_endpoint} =
       case settings.tracker.kind do
         "github" ->
-          {System.get_env("GH_TOKEN") || System.get_env("GITHUB_TOKEN"),
-           System.get_env("GITHUB_ASSIGNEE"), "https://api.github.com/graphql"}
+          api_key = System.get_env("GH_TOKEN") || System.get_env("GITHUB_TOKEN")
+          {api_key, System.get_env("GITHUB_ASSIGNEE"), "https://api.github.com/graphql"}
 
         _ ->
           {nil, nil, nil}

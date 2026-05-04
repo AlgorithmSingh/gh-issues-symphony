@@ -3,7 +3,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   alias Ecto.Changeset
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
-  alias SymphonyElixir.GitHub.Client
 
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =

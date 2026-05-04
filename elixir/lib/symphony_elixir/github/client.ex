@@ -60,14 +60,12 @@ defmodule SymphonyElixir.GitHub.Client do
   def fetch_candidate_issues do
     tracker = Config.settings!().tracker
 
-    cond do
-      not is_binary(tracker.repo) or tracker.repo == "" ->
-        {:error, :missing_github_repo}
-
-      true ->
-        with {:ok, viewer_login} <- maybe_resolve_viewer_login(tracker.assignee) do
-          do_fetch_by_states(tracker.repo, tracker.active_states, tracker.state_label_prefix, tracker.assignee, viewer_login)
-        end
+    if not is_binary(tracker.repo) or tracker.repo == "" do
+      {:error, :missing_github_repo}
+    else
+      with {:ok, viewer_login} <- maybe_resolve_viewer_login(tracker.assignee) do
+        do_fetch_by_states(tracker.repo, tracker.active_states, tracker.state_label_prefix, tracker.assignee, viewer_login)
+      end
     end
   end
 
@@ -80,12 +78,10 @@ defmodule SymphonyElixir.GitHub.Client do
     else
       tracker = Config.settings!().tracker
 
-      cond do
-        not is_binary(tracker.repo) or tracker.repo == "" ->
-          {:error, :missing_github_repo}
-
-        true ->
-          do_fetch_by_states(tracker.repo, normalized_states, tracker.state_label_prefix, nil, nil)
+      if not is_binary(tracker.repo) or tracker.repo == "" do
+        {:error, :missing_github_repo}
+      else
+        do_fetch_by_states(tracker.repo, normalized_states, tracker.state_label_prefix, nil, nil)
       end
     end
   end
@@ -145,7 +141,13 @@ defmodule SymphonyElixir.GitHub.Client do
   end
 
   @doc false
-  @spec build_search_query_for_test(String.t(), [String.t()], String.t(), String.t() | nil, String.t() | nil) :: String.t()
+  @spec build_search_query_for_test(
+          String.t(),
+          [String.t()],
+          String.t(),
+          String.t() | nil,
+          String.t() | nil
+        ) :: String.t()
   def build_search_query_for_test(repo, states, prefix, configured_assignee, viewer_login) do
     build_search_query(repo, states, prefix, configured_assignee, viewer_login)
   end
@@ -387,16 +389,20 @@ defmodule SymphonyElixir.GitHub.Client do
         {:error, :missing_github_auth}
 
       path ->
-        case System.cmd(path, ["auth", "token"], stderr_to_stdout: true) do
-          {output, 0} ->
-            case String.trim(output) do
-              "" -> {:error, :missing_github_auth}
-              token -> {:ok, token}
-            end
+        run_gh_auth_token(path)
+    end
+  end
 
-          _ ->
-            {:error, :missing_github_auth}
+  defp run_gh_auth_token(path) do
+    case System.cmd(path, ["auth", "token"], stderr_to_stdout: true) do
+      {output, 0} ->
+        case String.trim(output) do
+          "" -> {:error, :missing_github_auth}
+          token -> {:ok, token}
         end
+
+      _ ->
+        {:error, :missing_github_auth}
     end
   end
 
@@ -408,8 +414,6 @@ defmodule SymphonyElixir.GitHub.Client do
       _ -> {:ok, nil}
     end
   end
-
-  defp maybe_resolve_viewer_login(_), do: {:ok, nil}
 
   defp resolve_viewer_login do
     case Application.get_env(:symphony_elixir, :github_viewer_login) do
@@ -624,8 +628,6 @@ defmodule SymphonyElixir.GitHub.Client do
       login -> Enum.any?(assignees, &(&1 == login))
     end
   end
-
-  defp assigned_to_worker?(_assignees, _configured_assignee, _viewer_login), do: false
 
   defp resolve_target_login(nil, _viewer_login), do: nil
 

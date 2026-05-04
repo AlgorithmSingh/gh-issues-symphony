@@ -108,9 +108,8 @@ defmodule SymphonyElixir.GitHub.Adapter do
     with {:ok, %{repository_id: repository_id, status_label_ids: status_label_ids}} <-
            load_issue_label_state(issue_id, prefix),
          :ok <- maybe_remove_labels(issue_id, status_label_ids),
-         {:ok, target_label_id} <- ensure_label(repository_id, target_label_name),
-         :ok <- add_labels(issue_id, [target_label_id]) do
-      :ok
+         {:ok, target_label_id} <- ensure_label(repository_id, target_label_name) do
+      add_labels(issue_id, [target_label_id])
     end
   end
 
@@ -215,8 +214,9 @@ defmodule SymphonyElixir.GitHub.Adapter do
 
   defp create_label(repository_id, label_name) do
     color = color_for_label(label_name)
+    vars = %{repositoryId: repository_id, name: label_name, color: color}
 
-    case client_module().graphql(@create_label_mutation, %{repositoryId: repository_id, name: label_name, color: color}) do
+    case client_module().graphql(@create_label_mutation, vars) do
       {:ok, %{"data" => %{"createLabel" => %{"label" => %{"id" => label_id}}}}} when is_binary(label_id) ->
         {:ok, label_id}
 
@@ -252,6 +252,4 @@ defmodule SymphonyElixir.GitHub.Adapter do
     |> String.replace(~r/[^a-z0-9]+/, "-")
     |> String.trim("-")
   end
-
-  defp slug(_value), do: ""
 end
