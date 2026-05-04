@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Tracker.Memory do
 
   @behaviour SymphonyElixir.Tracker
 
-  alias SymphonyElixir.Issue
+  alias SymphonyElixir.{Config, Issue}
 
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -63,9 +63,7 @@ defmodule SymphonyElixir.Tracker.Memory do
   end
 
   defp normalize_state(state) when is_binary(state) do
-    state
-    |> String.trim()
-    |> String.downcase()
+    Config.Schema.normalize_issue_state(state)
   end
 
   defp normalize_state(_state), do: ""
