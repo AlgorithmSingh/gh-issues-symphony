@@ -846,7 +846,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert Schema.normalize_state_limits(%{"In Progress" => 2, todo: 1}) == %{
              "todo" => 1,
-             "in progress" => 2
+             "in-progress" => 2
            }
 
     changeset =

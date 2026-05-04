@@ -639,7 +639,7 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp normalize_issue_state(state_name) when is_binary(state_name) do
-    String.downcase(String.trim(state_name))
+    Config.Schema.normalize_issue_state(state_name)
   end
 
   defp terminal_state_set do

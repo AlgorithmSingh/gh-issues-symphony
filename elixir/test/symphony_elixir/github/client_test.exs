@@ -100,6 +100,44 @@ defmodule SymphonyElixir.GitHub.ClientTest do
       assert log =~ "multiple"
     end
 
+    test "overrides state to nil and warns when GitHub is CLOSED but the label is active" do
+      raw =
+        sample_issue_payload()
+        |> Map.put("state", "CLOSED")
+        |> put_in(["labels"], %{"nodes" => [%{"name" => "status:in-progress"}]})
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          issue = Client.normalize_issue_for_test(raw, nil, nil)
+          assert issue.state == nil
+        end)
+
+      assert log =~ "CLOSED"
+      assert log =~ "in-progress"
+    end
+
+    test "leaves state intact when GitHub is CLOSED and the label is not in active_states" do
+      raw =
+        sample_issue_payload()
+        |> Map.put("state", "CLOSED")
+        |> put_in(["labels"], %{"nodes" => [%{"name" => "status:done"}]})
+
+      issue = Client.normalize_issue_for_test(raw, nil, nil)
+
+      assert issue.state == "done"
+    end
+
+    test "does not override when GitHub is OPEN even with an active status label" do
+      raw =
+        sample_issue_payload()
+        |> Map.put("state", "OPEN")
+        |> put_in(["labels"], %{"nodes" => [%{"name" => "status:todo"}]})
+
+      issue = Client.normalize_issue_for_test(raw, nil, nil)
+
+      assert issue.state == "todo"
+    end
+
     test "marks issues as not routed when configured assignee does not match any login" do
       raw =
         sample_issue_payload()

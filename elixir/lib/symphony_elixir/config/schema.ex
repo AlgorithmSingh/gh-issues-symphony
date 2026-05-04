@@ -344,7 +344,10 @@ defmodule SymphonyElixir.Config.Schema do
 
   @spec normalize_issue_state(String.t()) :: String.t()
   def normalize_issue_state(state_name) when is_binary(state_name) do
-    String.downcase(state_name)
+    state_name
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
   end
 
   @doc false

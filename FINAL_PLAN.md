@@ -156,7 +156,12 @@ X-Github-Next-Global-ID: 1
 - `identifier` ← `"#" <> Integer.to_string(number)`
 - `state` ← first label starting with `status:`, prefix stripped, **kept
   lowercased** (don't humanize — `Config.Schema.normalize_issue_state/1`
-  lowercases both sides for comparison anyway)
+  lowercases both sides for comparison anyway). **Override:** if GitHub's
+  native `state == CLOSED` and the derived label-state is in
+  `active_states`, treat the issue as terminal (set state to `nil` so the
+  reconciler stops the worker). Defends against label drift from a manual UI
+  close on an `status:in-progress` issue, which would otherwise leave the
+  worker spinning on a closed ticket.
 - `branch_name` ← `"symphony/issue-#{number}-#{slug(title)}"` truncated to 64
   chars
 - `priority` ← `nil`
@@ -309,6 +314,15 @@ Body: same structure as the current Linear WORKFLOW.md but with these swaps:
 
 Sandbox note: confirm `gh` works under `thread_sandbox: workspace-write`
 (needs network egress). Document the policy if not.
+
+Trust posture note: the agent invokes `gh` with the workspace's ambient
+token, which has whatever scope the operator granted it. Unlike the
+Linear-era `linear_graphql` tool, there is no orchestrator-side chokepoint
+narrowing what the agent can do — the token can in principle write to any
+repo, branch, or issue it has access to. WORKFLOW.md MUST state the
+expected token scope (recommended: a fine-grained PAT limited to the
+single `repo` configured in the tracker block, with Issues + Pull Requests
+write only). A scoped wrapper around `gh` is a v2 conversation.
 
 ---
 

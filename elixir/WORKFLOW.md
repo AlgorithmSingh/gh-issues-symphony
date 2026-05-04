@@ -76,6 +76,17 @@ The agent talks to GitHub through the `gh` CLI inside the workspace. If `gh` is
 not on `PATH`, or `gh auth status` fails, stop and ask the user to install and
 authenticate it (`gh auth login`).
 
+### Expected token scope (operator-side)
+
+Unlike the Linear-era `linear_graphql` tool, there is no orchestrator-side
+chokepoint narrowing what the agent can do — `gh` runs with whatever token the
+workspace has. Operators SHOULD provision a fine-grained personal access token
+scoped to the single repository configured in the `tracker.repo` block, with
+write access limited to Issues and Pull Requests (plus Contents for
+branches/PR bodies). Avoid classic tokens with `repo`-wide scope; they grant
+write access to every repo the user can see, which is well beyond what
+Symphony needs.
+
 ## Default posture
 
 - Start by determining the issue's current status, then follow the matching flow for that status.

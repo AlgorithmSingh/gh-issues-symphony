@@ -498,6 +498,8 @@ defmodule SymphonyElixir.GitHub.Client do
         title = Map.get(issue, "title")
         labels = extract_labels(issue)
         assignees = extract_assignees(issue)
+        derived_state = derive_state(labels, label_prefix())
+        effective_state = apply_native_state_override(derived_state, Map.get(issue, "state"), id, number)
 
         %Issue{
           id: id,
@@ -505,7 +507,7 @@ defmodule SymphonyElixir.GitHub.Client do
           title: title,
           description: Map.get(issue, "body"),
           priority: nil,
-          state: derive_state(labels, label_prefix()),
+          state: effective_state,
           branch_name: synthesize_branch_name(number, title),
           url: Map.get(issue, "url"),
           assignee_id: pick_assignee_id(assignees, configured_assignee, viewer_login),
@@ -560,6 +562,35 @@ defmodule SymphonyElixir.GitHub.Client do
   end
 
   defp derive_state(_labels, _prefix), do: nil
+
+  defp apply_native_state_override(nil, _native_state, _id, _number), do: nil
+
+  defp apply_native_state_override(derived_state, "CLOSED", id, number)
+       when is_binary(derived_state) do
+    if active_state?(derived_state) do
+      Logger.warning("GitHub issue #{inspect(id)} (##{number}) is CLOSED but carries active status label #{inspect(derived_state)}; treating as terminal")
+
+      nil
+    else
+      derived_state
+    end
+  end
+
+  defp apply_native_state_override(derived_state, _native_state, _id, _number), do: derived_state
+
+  defp active_state?(state_name) when is_binary(state_name) do
+    normalized = Config.Schema.normalize_issue_state(state_name)
+
+    case Config.settings!() do
+      %{tracker: %{active_states: active_states}} when is_list(active_states) ->
+        Enum.any?(active_states, fn s ->
+          Config.Schema.normalize_issue_state(to_string(s)) == normalized
+        end)
+
+      _ ->
+        false
+    end
+  end
 
   defp strip_prefix(label, prefix) do
     lower_prefix = String.downcase(prefix)
