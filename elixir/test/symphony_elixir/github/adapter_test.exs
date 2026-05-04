@@ -180,4 +180,149 @@ defmodule SymphonyElixir.GitHub.AdapterTest do
 
     assert {:error, {:github_graphql_errors, _}} = Adapter.update_issue_state("I_kwDO111", "Done")
   end
+
+  test "update_issue_state returns not found when issue label payload is unexpected" do
+    Process.put({FakeClient, :graphql_results}, [{:ok, %{"data" => nil}}])
+
+    assert {:error, :github_issue_not_found} = Adapter.update_issue_state("I_kwDO222", "Done")
+  end
+
+  test "update_issue_state ignores malformed label nodes and surfaces remove graphql errors" do
+    Process.put(
+      {FakeClient, :graphql_results},
+      [
+        issue_labels_response([
+          %{"id" => "L_old", "name" => "status:todo"},
+          %{"id" => "L_missing_name"},
+          %{"id" => "L_non_binary_name", "name" => 42},
+          %{"id" => "L_other", "name" => "bug"}
+        ]),
+        {:ok, %{"errors" => [%{"message" => "remove failed"}]}}
+      ]
+    )
+
+    assert {:error, {:github_graphql_errors, [%{"message" => "remove failed"}]}} =
+             Adapter.update_issue_state("I_kwDO222", "Done")
+
+    assert_receive {:graphql_called, _read, %{id: "I_kwDO222"}}
+    assert_receive {:graphql_called, _remove, %{labelableId: "I_kwDO222", labelIds: ["L_old"]}}
+  end
+
+  test "update_issue_state surfaces remove transport errors" do
+    Process.put(
+      {FakeClient, :graphql_results},
+      [
+        issue_labels_response([%{"id" => "L_old", "name" => "status:todo"}]),
+        {:error, :network_error}
+      ]
+    )
+
+    assert {:error, :network_error} = Adapter.update_issue_state("I_kwDO333", "Done")
+  end
+
+  test "update_issue_state surfaces add graphql errors" do
+    Process.put(
+      {FakeClient, :graphql_results},
+      [
+        issue_labels_response([]),
+        existing_label_response("L_done"),
+        {:ok, %{"errors" => [%{"message" => "add failed"}]}}
+      ]
+    )
+
+    assert {:error, {:github_graphql_errors, [%{"message" => "add failed"}]}} =
+             Adapter.update_issue_state("I_kwDO444", "Done")
+
+    assert_receive {:graphql_called, _add, %{labelableId: "I_kwDO444", labelIds: ["L_done"]}}
+  end
+
+  test "update_issue_state surfaces add transport errors" do
+    Process.put(
+      {FakeClient, :graphql_results},
+      [issue_labels_response([]), existing_label_response("L_done"), {:error, :add_down}]
+    )
+
+    assert {:error, :add_down} = Adapter.update_issue_state("I_kwDO555", "Done")
+  end
+
+  test "update_issue_state surfaces lookup transport errors" do
+    Process.put({FakeClient, :graphql_results}, [issue_labels_response([]), {:error, :lookup_down}])
+
+    assert {:error, :lookup_down} = Adapter.update_issue_state("I_kwDO666", "Done")
+  end
+
+  test "update_issue_state surfaces lookup graphql errors" do
+    Process.put(
+      {FakeClient, :graphql_results},
+      [
+        issue_labels_response([]),
+        {:ok, %{"errors" => [%{"message" => "lookup failed"}]}}
+      ]
+    )
+
+    assert {:error, {:github_graphql_errors, [%{"message" => "lookup failed"}]}} =
+             Adapter.update_issue_state("I_kwDO777", "Done")
+  end
+
+  test "update_issue_state treats unexpected lookup bodies as missing labels" do
+    Process.put(
+      {FakeClient, :graphql_results},
+      [
+        issue_labels_response([]),
+        {:ok, %{"data" => nil}},
+        {:ok, %{"data" => %{"createLabel" => %{"label" => %{"name" => "status:done"}}}}}
+      ]
+    )
+
+    assert {:error, :github_label_create_failed} = Adapter.update_issue_state("I_kwDO888", "Done")
+  end
+
+  test "update_issue_state surfaces create label graphql errors" do
+    Process.put(
+      {FakeClient, :graphql_results},
+      [
+        issue_labels_response([]),
+        missing_label_response(),
+        {:ok, %{"errors" => [%{"message" => "create failed"}]}}
+      ]
+    )
+
+    assert {:error, {:github_graphql_errors, [%{"message" => "create failed"}]}} =
+             Adapter.update_issue_state("I_kwDO999", "Done")
+  end
+
+  test "update_issue_state surfaces create label transport errors" do
+    Process.put(
+      {FakeClient, :graphql_results},
+      [issue_labels_response([]), missing_label_response(), {:error, :transport_failure}]
+    )
+
+    assert {:error, :transport_failure} = Adapter.update_issue_state("I_kwDO000", "Done")
+  end
+
+  test "color_for_label_for_test handles label names without the configured prefix" do
+    assert Adapter.color_for_label_for_test("done") == "0e8a16"
+    assert Adapter.color_for_label_for_test("unknown-state") == "cccccc"
+  end
+
+  defp issue_labels_response(nodes) do
+    {:ok,
+     %{
+       "data" => %{
+         "node" => %{
+           "id" => "I_kwDO123",
+           "repository" => %{"id" => "R_kw1"},
+           "labels" => %{"nodes" => nodes}
+         }
+       }
+     }}
+  end
+
+  defp existing_label_response(label_id) do
+    {:ok, %{"data" => %{"node" => %{"label" => %{"id" => label_id}}}}}
+  end
+
+  defp missing_label_response do
+    {:ok, %{"data" => %{"node" => %{"label" => nil}}}}
+  end
 end

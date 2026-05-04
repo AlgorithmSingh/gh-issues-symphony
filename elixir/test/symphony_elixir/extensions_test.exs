@@ -205,6 +205,14 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert SymphonyElixir.Tracker.adapter() == Adapter
   end
 
+  test "tracker raises for unsupported adapter kinds" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    assert_raise ArgumentError, ~r/unsupported tracker.kind: "linear"/, fn ->
+      SymphonyElixir.Tracker.fetch_candidate_issues()
+    end
+  end
+
   test "github adapter delegates reads to the configured client module" do
     Application.put_env(:symphony_elixir, :github_client_module, FakeGitHubClient)
 

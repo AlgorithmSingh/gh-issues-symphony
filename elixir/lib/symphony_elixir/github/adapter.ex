@@ -85,6 +85,10 @@ defmodule SymphonyElixir.GitHub.Adapter do
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids), do: client_module().fetch_issue_states_by_ids(issue_ids)
 
+  @doc false
+  @spec color_for_label_for_test(String.t()) :: String.t()
+  def color_for_label_for_test(label_name), do: color_for_label(label_name)
+
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
     case client_module().graphql(@add_comment_mutation, %{subjectId: issue_id, body: body}) do
